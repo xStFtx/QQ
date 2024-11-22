@@ -2,8 +2,10 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.optimize import minimize
-import yfinance as yf
 from scipy.signal import find_peaks
+import yfinance as yf
+import pywt  # For Wavelet Transform
+import plotly.graph_objects as go
 
 # Fetch Data from Yahoo Finance
 def fetch_data(tickers, start_date, end_date):
@@ -45,7 +47,7 @@ def optimize_portfolio(returns, risk_free_rate=0.0, offshore_limit=0.10, maximiz
     )
     return result
 
-# Calculate Efficient Frontier and Optimal Portfolios
+# Efficient Frontier Calculation
 def calculate_efficient_frontier(returns, risk_free_rate=0.0, num_portfolios=10000, offshore_limit=0.10):
     """Generate portfolios for the Efficient Frontier."""
     num_assets = returns.shape[1]
@@ -64,6 +66,25 @@ def calculate_efficient_frontier(returns, risk_free_rate=0.0, num_portfolios=100
         results[2, i] = port_sharpe  # Sharpe Ratio
 
     return results, weights_record
+
+def calculate_wavelet_analysis(returns, weights, plot=True):
+    """Perform Wavelet analysis on the portfolio returns."""
+    # Calculate portfolio returns using the given weights
+    portfolio_returns = np.dot(returns, weights)
+
+    # Perform Continuous Wavelet Transform (CWT)
+    coefficients, frequencies = pywt.cwt(portfolio_returns, np.arange(1, 128), 'mexh')
+    
+    if plot:
+        plt.figure(figsize=(12, 6))
+        plt.imshow(np.abs(coefficients), aspect='auto', extent=[0, len(portfolio_returns), 1, 128], cmap='jet')
+        plt.colorbar(label='Magnitude')
+        plt.title('Wavelet Transform of Portfolio Returns')
+        plt.xlabel('Time')
+        plt.ylabel('Frequency')
+        plt.show()
+
+    return coefficients, frequencies
 
 def calculate_fourier_analysis(returns, weights, plot=True):
     """Perform Fourier analysis on the portfolio returns."""
@@ -99,32 +120,46 @@ def calculate_fourier_analysis(returns, weights, plot=True):
 
     return fft_freqs, smoothed_magnitude, peaks
 
-# Plot Efficient Frontier and Optimal Portfolios
-def plot_efficient_frontier(results, optimal_portfolio, labels=("Volatility", "Return")):
-    """Visualize the Efficient Frontier with optimal portfolios (min volatility, max Sharpe)."""
+# Visualizing the Efficient Frontier using Plotly for interactivity
+def plot_efficient_frontier_interactive(results, optimal_portfolio, labels=("Volatility", "Return")):
+    """Visualize the Efficient Frontier with interactive Plotly."""
     max_sharpe_idx = np.argmax(results[2, :])  # Index of maximum Sharpe ratio
     max_sharpe_volatility = results[0, max_sharpe_idx]
     max_sharpe_return = results[1, max_sharpe_idx]
 
-    # Plot Efficient Frontier
-    plt.figure(figsize=(10, 7))
-    plt.scatter(results[0, :], results[1, :], c=results[2, :], cmap='viridis', marker='o')
-    plt.colorbar(label='Sharpe Ratio')
-    plt.xlabel(labels[0])
-    plt.ylabel(labels[1])
-    plt.title('Efficient Frontier')
+    # Create the plot
+    fig = go.Figure()
 
-    # Highlight Optimal Portfolios
-    plt.scatter(
-        optimal_portfolio[1], optimal_portfolio[0],
-        c='red', marker='X', s=200, label='Min Volatility Portfolio'
+    # Scatter plot for Efficient Frontier
+    fig.add_trace(go.Scatter(
+        x=results[0, :], y=results[1, :], mode='markers', marker=dict(color=results[2, :], colorscale='Viridis', size=5),
+        name="Efficient Frontier", hovertemplate="Volatility: %{x:.2%}<br>Return: %{y:.2%}<br>Sharpe Ratio: %{text}",
+        text=results[2, :]
+    ))
+
+    # Plot Min Volatility Portfolio
+    fig.add_trace(go.Scatter(
+        x=[optimal_portfolio[0]], y=[optimal_portfolio[1]], mode='markers+text', text=['Min Volatility'],
+        marker=dict(color='red', size=10), textposition='top right', name='Min Volatility Portfolio'
+    ))
+
+    # Plot Max Sharpe Portfolio
+    fig.add_trace(go.Scatter(
+        x=[max_sharpe_volatility], y=[max_sharpe_return], mode='markers+text', text=['Max Sharpe'],
+        marker=dict(color='blue', size=10), textposition='top right', name='Max Sharpe Portfolio'
+    ))
+
+    # Update Layout
+    fig.update_layout(
+        title="Efficient Frontier",
+        xaxis_title=labels[0],
+        yaxis_title=labels[1],
+        template="plotly_dark",
+        hovermode="closest",
+        showlegend=True
     )
-    plt.scatter(
-        max_sharpe_volatility, max_sharpe_return,
-        c='blue', marker='X', s=200, label='Max Sharpe Portfolio'
-    )
-    plt.legend()
-    plt.show()
+
+    fig.show()
 
 # Display Results with Allocation
 def display_results(optimal_weights, investment_allocation, tickers):
@@ -162,10 +197,12 @@ investment_allocation = optimal_weights * budget
 # Efficient Frontier Calculation
 results, weights_record = calculate_efficient_frontier(returns, risk_free_rate=risk_free_rate)
 
-# Plot Efficient Frontier
-plot_efficient_frontier(results, (optimal_volatility, optimal_return))
+# Plot Efficient Frontier interactively
+plot_efficient_frontier_interactive(results, (optimal_volatility, optimal_return))
 
 # Display Results
 display_results(optimal_weights, investment_allocation, tickers)
 
+# Fourier and Wavelet Analysis
 fft_freqs, fft_magnitude, peaks = calculate_fourier_analysis(returns, optimal_weights)
+coefficients, frequencies = calculate_wavelet_analysis(returns, optimal_weights)
